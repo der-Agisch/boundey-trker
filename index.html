@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>BOUNDARY — Property Line Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #0a0c0e;
+    --surface: #111418;
+    --panel: #161b22;
+    --border: #2a3140;
+    --accent: #e8c547;
+    --accent2: #4af0a0;
+    --danger: #ff4757;
+    --text: #d4dbe8;
+    --muted: #5a6478;
+    --mono: 'Share Tech Mono', monospace;
+    --sans: 'Barlow Condensed', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* ─── HEADER ─── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    z-index: 100;
+    flex-shrink: 0;
+  }
+
+  .logo {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: 4px;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+
+  .logo span {
+    color: var(--muted);
+    font-weight: 300;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: 2px;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+  }
+  .status-dot.active { background: var(--accent2); box-shadow: 0 0 6px var(--accent2); }
+  .status-dot.searching { background: var(--accent); animation: blink 1s infinite; }
+  .status-dot.error { background: var(--danger); }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ─── MAIN LAYOUT ─── */
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ─── MAP ─── */
+  #map {
+    flex: 1;
+    z-index: 1;
+  }
+
+  /* Override leaflet styles for dark theme */
+  .leaflet-container {
+    background: #0d1117;
+  }
+
+  /* ─── SIDE PANEL ─── */
+  .panel {
+    width: 280px;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    z-index: 10;
+    flex-shrink: 0;
+    overflow-y: auto;
+  }
+
+  @media (max-width: 640px) {
+    .main { flex-direction: column-reverse; }
+    .panel {
+      width: 100%;
+      border-left: none;
+      border-top: 1px solid var(--border);
+      max-height: 220px;
+      overflow-y: auto;
+    }
+  }
+
+  .panel-section {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  /* ─── COORDINATES ─── */
+  .coord-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .coord-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 8px 10px;
+  }
+
+  .coord-box .label {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    margin-bottom: 3px;
+  }
+
+  .coord-box .value {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ─── ACCURACY ─── */
+  .acc-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+  }
+
+  .acc-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .acc-fill {
+    height: 100%;
+    background: var(--accent2);
+    border-radius: 2px;
+    transition: width 0.5s, background 0.3s;
+  }
+
+  .acc-val {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    width: 50px;
+    text-align: right;
+  }
+
+  /* ─── DISTANCES ─── */
+  .distances {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .dist-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 8px 10px;
+    transition: border-color 0.3s;
+  }
+
+  .dist-row.nearest {
+    border-color: var(--accent);
+  }
+
+  .dist-direction {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    width: 28px;
+    flex-shrink: 0;
+  }
+
+  .dist-bar-wrap {
+    flex: 1;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .dist-bar-fill {
+    height: 100%;
+    background: var(--accent2);
+    border-radius: 2px;
+    transition: width 0.4s;
+  }
+
+  .dist-row.nearest .dist-bar-fill { background: var(--accent); }
+
+  .dist-val {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    width: 55px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .dist-row.nearest .dist-val { color: var(--accent); }
+
+  /* ─── PARCEL INFO ─── */
+  .info-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .info-key {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+
+  .info-val {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 160px;
+  }
+
+  /* ─── INSIDE/OUTSIDE BADGE ─── */
+  .position-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px;
+    font-family: var(--sans);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    transition: all 0.3s;
+  }
+
+  .position-badge.inside {
+    color: var(--accent2);
+    border-color: var(--accent2);
+    box-shadow: 0 0 20px rgba(74,240,160,0.08);
+  }
+
+  .position-badge.outside {
+    color: var(--danger);
+    border-color: var(--danger);
+    box-shadow: 0 0 20px rgba(255,71,87,0.08);
+  }
+
+  .position-badge.unknown {
+    color: var(--muted);
+  }
+
+  /* ─── LOADING / ERROR OVERLAYS ─── */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(10,12,14,0.92);
+    backdrop-filter: blur(4px);
+    gap: 16px;
+    text-align: center;
+    padding: 32px;
+  }
+
+  .overlay.hidden { display: none; }
+
+  .overlay-icon {
+    font-size: 40px;
+    line-height: 1;
+  }
+
+  .overlay-title {
+    font-family: var(--sans);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .overlay-msg {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    max-width: 300px;
+    line-height: 1.6;
+  }
+
+  .btn {
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--bg);
+    background: var(--accent);
+    border: none;
+    padding: 10px 24px;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+
+  .btn:hover { opacity: 0.85; }
+
+  .spinner {
+    width: 36px;
+    height: 36px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ─── LEAFLET CUSTOMIZATION ─── */
+  .leaflet-tile-pane { filter: grayscale(0.3) brightness(0.85); }
+
+  .parcel-boundary {
+    stroke: var(--accent);
+    stroke-width: 2.5;
+    stroke-opacity: 0.9;
+    fill: var(--accent);
+    fill-opacity: 0.06;
+    transition: all 0.3s;
+  }
+
+  .parcel-boundary-other {
+    stroke: #4a8fff;
+    stroke-width: 1;
+    stroke-opacity: 0.5;
+    fill: #4a8fff;
+    fill-opacity: 0.03;
+  }
+
+  .parcel-boundary-selected {
+    stroke: var(--accent);
+    stroke-width: 3;
+    stroke-opacity: 1;
+    fill: var(--accent);
+    fill-opacity: 0.1;
+  }
+
+  /* GPS dot */
+  .gps-dot-outer {
+    width: 40px;
+    height: 40px;
+    background: rgba(74,240,160,0.15);
+    border: 2px solid var(--accent2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: pulse 2s ease-out infinite;
+  }
+
+  .gps-dot-inner {
+    width: 10px;
+    height: 10px;
+    background: var(--accent2);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--accent2);
+  }
+
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(74,240,160,0.4); }
+    70% { box-shadow: 0 0 0 12px rgba(74,240,160,0); }
+    100% { box-shadow: 0 0 0 0 rgba(74,240,160,0); }
+  }
+
+  /* Crosshair lines on map */
+  .leaflet-crosshair-h, .leaflet-crosshair-v {
+    position: absolute;
+    background: rgba(74,240,160,0.2);
+    pointer-events: none;
+  }
+
+  /* Loading parcels indicator */
+  .fetch-indicator {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 50;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: opacity 0.3s;
+  }
+
+  .fetch-indicator.hidden { opacity: 0; pointer-events: none; }
+
+  .fetch-spinner {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  /* No-parcel notice */
+  .no-parcel {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    padding: 12px;
+    background: var(--bg);
+    border: 1px dashed var(--border);
+  }
+
+  .leaflet-control-zoom {
+    border: 1px solid var(--border) !important;
+    border-radius: 0 !important;
+  }
+
+  .leaflet-control-zoom a {
+    background: var(--panel) !important;
+    color: var(--text) !important;
+    border-bottom: 1px solid var(--border) !important;
+    font-size: 16px !important;
+    line-height: 26px !important;
+  }
+
+  .leaflet-control-zoom a:hover {
+    background: var(--border) !important;
+  }
+
+  .leaflet-control-attribution {
+    background: rgba(10,12,14,0.8) !important;
+    color: var(--muted) !important;
+    font-size: 9px !important;
+  }
+
+  .leaflet-control-attribution a { color: var(--muted) !important; }
+
+  /* north indicator */
+  .north-badge {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 50;
+    width: 38px;
+    height: 38px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 1px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Boundary<span> ·tracker</span></div>
+  <div class="status-pill">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">INITIALIZING</span>
+  </div>
+</header>
+
+<div class="main">
+  <!-- MAP -->
+  <div style="position:relative;flex:1;display:flex;">
+    <div id="map"></div>
+    <div class="north-badge">N</div>
+    <div class="fetch-indicator hidden" id="fetchIndicator">
+      <div class="fetch-spinner"></div>
+      LOADING PARCELS
+    </div>
+  </div>
+
+  <!-- PANEL -->
+  <div class="panel">
+
+    <!-- GPS POSITION -->
+    <div class="panel-section">
+      <div class="panel-label">GPS Position</div>
+      <div class="coord-grid">
+        <div class="coord-box">
+          <div class="label">LAT</div>
+          <div class="value" id="dispLat">—</div>
+        </div>
+        <div class="coord-box">
+          <div class="label">LNG</div>
+          <div class="value" id="dispLng">—</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;">
+        <div class="panel-label" style="margin-bottom:6px;">Accuracy</div>
+        <div class="acc-bar-wrap">
+          <div class="acc-bar"><div class="acc-fill" id="accFill" style="width:0%"></div></div>
+          <div class="acc-val" id="accVal">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- POSITION STATUS -->
+    <div class="panel-section">
+      <div class="panel-label">On Property</div>
+      <div class="position-badge unknown" id="positionBadge">
+        <span id="positionIcon">◌</span>
+        <span id="positionLabel">UNKNOWN</span>
+      </div>
+    </div>
+
+    <!-- NEAREST BOUNDARIES -->
+    <div class="panel-section">
+      <div class="panel-label">Distance to Boundaries</div>
+      <div class="distances" id="distancesPanel">
+        <div class="no-parcel">Waiting for parcel data…</div>
+      </div>
+    </div>
+
+    <!-- PARCEL INFO -->
+    <div class="panel-section">
+      <div class="panel-label">Parcel Details</div>
+      <div class="info-rows" id="parcelInfo">
+        <div class="no-parcel">No parcel selected</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- OVERLAYS -->
+<div class="overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="overlay-title">Acquiring Signal</div>
+  <div class="overlay-msg">Requesting GPS access. Please allow location permission when prompted.</div>
+</div>
+
+<div class="overlay hidden" id="errorOverlay">
+  <div class="overlay-icon">⚠</div>
+  <div class="overlay-title" id="errorTitle">Error</div>
+  <div class="overlay-msg" id="errorMsg"></div>
+  <button class="btn" onclick="startTracking()">Retry</button>
+</div>
+
+<script>
+// ─── STATE ───────────────────────────────────────────────
+const state = {
+  map: null,
+  gpsMarker: null,
+  accuracyCircle: null,
+  parcelLayers: [],
+  selectedParcel: null,
+  lastFetchCenter: null,
+  userLat: null,
+  userLng: null,
+  accuracy: null,
+  watchId: null,
+  isFetching: false,
+};
+
+const FETCH_RADIUS_DEG = 0.008; // ~600m radius bounding box
+const REFETCH_DISTANCE = 200;   // refetch if moved >200m
+
+// ─── INIT MAP ────────────────────────────────────────────
+function initMap(lat, lng) {
+  state.map = L.map('map', {
+    center: [lat, lng],
+    zoom: 18,
+    zoomControl: true,
+    attributionControl: true,
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors | Parcel data: Indiana Data Harvest',
+    maxZoom: 21,
+    maxNativeZoom: 19,
+  }).addTo(state.map);
+
+  // GPS dot marker
+  const gpsDotHTML = `<div class="gps-dot-outer"><div class="gps-dot-inner"></div></div>`;
+  const gpsIcon = L.divIcon({ html: gpsDotHTML, className: '', iconSize: [40, 40], iconAnchor: [20, 20] });
+  state.gpsMarker = L.marker([lat, lng], { icon: gpsIcon, zIndexOffset: 1000 }).addTo(state.map);
+
+  state.accuracyCircle = L.circle([lat, lng], {
+    radius: state.accuracy || 10,
+    color: '#4af0a0',
+    fillColor: '#4af0a0',
+    fillOpacity: 0.06,
+    weight: 1,
+    dashArray: '4 4',
+  }).addTo(state.map);
+}
+
+// ─── GPS ─────────────────────────────────────────────────
+function startTracking() {
+  document.getElementById('loadingOverlay').classList.remove('hidden');
+  document.getElementById('errorOverlay').classList.add('hidden');
+  setStatus('searching', 'ACQUIRING GPS');
+
+  if (!navigator.geolocation) {
+    showError('No GPS', 'Your browser does not support geolocation.');
+    return;
+  }
+
+  if (state.watchId !== null) {
+    navigator.geolocation.clearWatch(state.watchId);
+  }
+
+  state.watchId = navigator.geolocation.watchPosition(
+    onPosition,
+    onGpsError,
+    { enableHighAccuracy: true, maximumAge: 3000, timeout: 20000 }
+  );
+}
+
+function onPosition(pos) {
+  const lat = pos.coords.latitude;
+  const lng = pos.coords.longitude;
+  const acc = pos.coords.accuracy;
+
+  state.userLat = lat;
+  state.userLng = lng;
+  state.accuracy = acc;
+
+  document.getElementById('loadingOverlay').classList.add('hidden');
+  setStatus('active', 'TRACKING');
+
+  document.getElementById('dispLat').textContent = lat.toFixed(6);
+  document.getElementById('dispLng').textContent = lng.toFixed(6);
+
+  // Accuracy bar: 100% = 3m, 0% = 50m+
+  const accPct = Math.max(0, Math.min(100, 100 - ((acc - 3) / 47) * 100));
+  document.getElementById('accFill').style.width = accPct + '%';
+  document.getElementById('accFill').style.background = acc < 10 ? '#4af0a0' : acc < 25 ? '#e8c547' : '#ff4757';
+  document.getElementById('accVal').textContent = `±${Math.round(acc)}m`;
+
+  if (!state.map) {
+    initMap(lat, lng);
+  } else {
+    state.gpsMarker.setLatLng([lat, lng]);
+    state.accuracyCircle.setLatLng([lat, lng]);
+    state.accuracyCircle.setRadius(acc);
+  }
+
+  // Pan map to follow user
+  state.map.panTo([lat, lng], { animate: true, duration: 0.5 });
+
+  // Check if we need to refetch parcel data
+  const needsFetch = !state.lastFetchCenter ||
+    haversineDistance(lat, lng, state.lastFetchCenter.lat, state.lastFetchCenter.lng) > REFETCH_DISTANCE;
+
+  if (needsFetch && !state.isFetching) {
+    fetchParcels(lat, lng);
+  } else if (state.selectedParcel) {
+    updateDistances(lat, lng, state.selectedParcel);
+    updatePositionBadge(lat, lng, state.selectedParcel);
+  } else {
+    findCurrentParcel(lat, lng);
+  }
+}
+
+function onGpsError(err) {
+  const msgs = {
+    1: 'Location access denied. Please enable location permissions in your browser settings.',
+    2: 'GPS signal unavailable. Try moving to an open area.',
+    3: 'GPS request timed out. Retrying…',
+  };
+  showError('GPS Error', msgs[err.code] || 'Unknown GPS error.');
+  if (err.code === 3) setTimeout(startTracking, 3000);
+}
+
+// ─── PARCEL DATA FETCH ───────────────────────────────────
+async function fetchParcels(lat, lng) {
+  state.isFetching = true;
+  state.lastFetchCenter = { lat, lng };
+  document.getElementById('fetchIndicator').classList.remove('hidden');
+
+  const minX = lng - FETCH_RADIUS_DEG;
+  const minY = lat - FETCH_RADIUS_DEG;
+  const maxX = lng + FETCH_RADIUS_DEG;
+  const maxY = lat + FETCH_RADIUS_DEG;
+
+  const base = 'https://gisdata.in.gov/server/rest/services/Hosted/Parcel_Boundaries_of_Indiana_Current/FeatureServer/0/query';
+  const params = new URLSearchParams({
+    geometry: `${minX},${minY},${maxX},${maxY}`,
+    geometryType: 'esriGeometryEnvelope',
+    spatialRel: 'esriSpatialRelIntersects',
+    outFields: 'state_parcel_id,parcel_id,prop_add,prop_city,prop_zip,dlgf_prop_class_code,county_fips,loaddate,latitude,longitude',
+    returnGeometry: 'true',
+    f: 'geojson',
+  });
+
+  try {
+    const res = await fetch(`${base}?${params}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    if (data.error) throw new Error(data.error.message);
+
+    clearParcelLayers();
+    renderParcels(data.features);
+    findCurrentParcel(lat, lng);
+  } catch (err) {
+    console.error('Parcel fetch error:', err);
+    document.getElementById('distancesPanel').innerHTML =
+      `<div class="no-parcel">⚠ Failed to load parcel data: ${err.message}</div>`;
+  } finally {
+    state.isFetching = false;
+    document.getElementById('fetchIndicator').classList.add('hidden');
+  }
+}
+
+function clearParcelLayers() {
+  state.parcelLayers.forEach(l => state.map.removeLayer(l));
+  state.parcelLayers = [];
+  state.selectedParcel = null;
+}
+
+function renderParcels(features) {
+  features.forEach(feature => {
+    const layer = L.geoJSON(feature, {
+      style: { className: 'parcel-boundary-other' },
+      onEachFeature: (f, l) => {
+        l.on('click', () => selectParcel(f, l));
+      }
+    }).addTo(state.map);
+    layer._featureData = feature;
+    state.parcelLayers.push(layer);
+  });
+}
+
+function selectParcel(feature, layer) {
+  // Deselect previous
+  state.parcelLayers.forEach(l => {
+    l.setStyle && l.setStyle({ className: 'parcel-boundary-other' });
+  });
+
+  layer.setStyle && layer.setStyle({ className: 'parcel-boundary-selected' });
+  state.selectedParcel = feature;
+
+  updateParcelInfo(feature.properties);
+  if (state.userLat !== null) {
+    updateDistances(state.userLat, state.userLng, feature);
+    updatePositionBadge(state.userLat, state.userLng, feature);
+  }
+}
+
+function findCurrentParcel(lat, lng) {
+  let found = null;
+
+  for (const layer of state.parcelLayers) {
+    const feature = layer._featureData;
+    if (!feature || !feature.geometry) continue;
+    if (pointInGeoJSONPolygon([lng, lat], feature.geometry)) {
+      found = { feature, layer };
+      break;
+    }
+  }
+
+  if (found) {
+    selectParcel(found.feature, found.layer);
+  } else {
+    // Not inside any parcel — find nearest and show distances
+    updatePositionBadge(lat, lng, null);
+    findNearestParcel(lat, lng);
+  }
+}
+
+function findNearestParcel(lat, lng) {
+  let nearest = null;
+  let nearestDist = Infinity;
+
+  for (const layer of state.parcelLayers) {
+    const feature = layer._featureData;
+    if (!feature) continue;
+    const dist = distanceToPolygon(lat, lng, feature);
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearest = { feature, layer };
+    }
+  }
+
+  if (nearest) {
+    selectParcel(nearest.feature, nearest.layer);
+  }
+}
+
+// ─── UI UPDATES ──────────────────────────────────────────
+function updatePositionBadge(lat, lng, feature) {
+  const badge = document.getElementById('positionBadge');
+  const icon = document.getElementById('positionIcon');
+  const label = document.getElementById('positionLabel');
+
+  if (!feature) {
+    badge.className = 'position-badge unknown';
+    icon.textContent = '◌';
+    label.textContent = 'UNKNOWN';
+    return;
+  }
+
+  const inside = pointInGeoJSONPolygon([lng, lat], feature.geometry);
+  if (inside) {
+    badge.className = 'position-badge inside';
+    icon.textContent = '●';
+    label.textContent = 'ON PROPERTY';
+  } else {
+    badge.className = 'position-badge outside';
+    icon.textContent = '○';
+    label.textContent = 'OFF PROPERTY';
+  }
+}
+
+function updateParcelInfo(props) {
+  const panel = document.getElementById('parcelInfo');
+  if (!props) {
+    panel.innerHTML = '<div class="no-parcel">No parcel data</div>';
+    return;
+  }
+
+  const rows = [
+    ['Address', props.prop_add || '—'],
+    ['City', props.prop_city || '—'],
+    ['Parcel ID', props.parcel_id || props.state_parcel_id || '—'],
+    ['Class', formatClassCode(props.dlgf_prop_class_code)],
+    ['Updated', props.loaddate ? props.loaddate.split('T')[0] : '—'],
+  ];
+
+  panel.innerHTML = rows.map(([k, v]) => `
+    <div class="info-row">
+      <span class="info-key">${k}</span>
+      <span class="info-val">${v}</span>
+    </div>
+  `).join('');
+}
+
+function updateDistances(lat, lng, feature) {
+  if (!feature || !feature.geometry) return;
+
+  const segments = extractSegments(feature.geometry);
+  if (!segments.length) return;
+
+  // Calculate distance to each segment with direction
+  const dists = segments.map(seg => {
+    const d = pointToSegmentDistance(lat, lng, seg[0], seg[1]);
+    const bearing = bearingTo(lat, lng, (seg[0][0] + seg[1][0]) / 2, (seg[0][1] + seg[1][1]) / 2);
+    return { dist: d, bearing, dir: bearingToCardinal(bearing) };
+  });
+
+  // Group by cardinal direction, keep closest per direction
+  const byDir = {};
+  dists.forEach(d => {
+    if (!byDir[d.dir] || d.dist < byDir[d.dir].dist) {
+      byDir[d.dir] = d;
+    }
+  });
+
+  const sorted = Object.values(byDir).sort((a, b) => a.dist - b.dist);
+  const maxDist = sorted[sorted.length - 1]?.dist || 1;
+
+  const panel = document.getElementById('distancesPanel');
+  if (!sorted.length) {
+    panel.innerHTML = '<div class="no-parcel">No boundary data</div>';
+    return;
+  }
+
+  panel.innerHTML = sorted.map((d, i) => {
+    const pct = Math.max(4, (1 - d.dist / maxDist) * 100);
+    const ft = (d.dist * 3.28084).toFixed(0);
+    const m = d.dist.toFixed(1);
+    return `
+      <div class="dist-row ${i === 0 ? 'nearest' : ''}">
+        <span class="dist-direction">${d.dir}</span>
+        <div class="dist-bar-wrap"><div class="dist-bar-fill" style="width:${pct}%"></div></div>
+        <span class="dist-val">${ft}ft</span>
+      </div>
+    `;
+  }).join('');
+}
+
+// ─── GEOMETRY HELPERS ────────────────────────────────────
+
+// Ray-casting point-in-polygon
+function pointInGeoJSONPolygon(point, geometry) {
+  if (geometry.type === 'Polygon') {
+    return pointInPolygon(point, geometry.coordinates);
+  } else if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates.some(poly => pointInPolygon(point, poly));
+  }
+  return false;
+}
+
+function pointInPolygon(point, rings) {
+  const [x, y] = point;
+  let inside = false;
+  for (const ring of rings) {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i];
+      const [xj, yj] = ring[j];
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) {
+        inside = !inside;
+      }
+    }
+  }
+  return inside;
+}
+
+function extractSegments(geometry) {
+  const rings = [];
+  if (geometry.type === 'Polygon') rings.push(...geometry.coordinates);
+  else if (geometry.type === 'MultiPolygon') geometry.coordinates.forEach(p => rings.push(...p));
+
+  const segments = [];
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length - 1; i++) {
+      // coords are [lng, lat]
+      segments.push([
+        [ring[i][1], ring[i][0]],
+        [ring[i+1][1], ring[i+1][0]],
+      ]);
+    }
+  }
+  return segments;
+}
+
+function pointToSegmentDistance(px, py, a, b) {
+  // All in lat/lng degrees, convert to approx meters
+  const R = 111320; // meters per degree lat
+  const cosLat = Math.cos(px * Math.PI / 180);
+
+  const ax = a[1] * R * cosLat, ay = a[0] * R;
+  const bx = b[1] * R * cosLat, by = b[0] * R;
+  const ptx = py * R * cosLat, pty = px * R;
+
+  const dx = bx - ax, dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  let t = lenSq > 0 ? ((ptx - ax) * dx + (pty - ay) * dy) / lenSq : 0;
+  t = Math.max(0, Math.min(1, t));
+  const cx = ax + t * dx, cy = ay + t * dy;
+  return Math.sqrt((ptx - cx) ** 2 + (pty - cy) ** 2);
+}
+
+function distanceToPolygon(lat, lng, feature) {
+  const segs = extractSegments(feature.geometry);
+  return Math.min(...segs.map(s => pointToSegmentDistance(lat, lng, s[0], s[1])));
+}
+
+function bearingTo(lat1, lng1, lat2, lng2) {
+  const dLng = (lng2 - lng1) * Math.cos(lat1 * Math.PI / 180);
+  const dLat = lat2 - lat1;
+  return (Math.atan2(dLng, dLat) * 180 / Math.PI + 360) % 360;
+}
+
+function bearingToCardinal(deg) {
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round(deg / 45) % 8];
+}
+
+function haversineDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function formatClassCode(code) {
+  const map = {
+    '100':'Vacant Land','200':'Residential','300':'Agricultural',
+    '400':'Commercial','500':'Industrial','600':'Exempt',
+    '700':'Utilities','800':'Special Purpose',
+  };
+  if (!code) return '—';
+  const prefix = String(code).slice(0, 3);
+  return map[prefix] || `Class ${code}`;
+}
+
+// ─── STATUS ──────────────────────────────────────────────
+function setStatus(state, text) {
+  const dot = document.getElementById('statusDot');
+  const label = document.getElementById('statusText');
+  dot.className = `status-dot ${state}`;
+  label.textContent = text;
+}
+
+function showError(title, msg) {
+  document.getElementById('loadingOverlay').classList.add('hidden');
+  document.getElementById('errorOverlay').classList.remove('hidden');
+  document.getElementById('errorTitle').textContent = title;
+  document.getElementById('errorMsg').textContent = msg;
+  setStatus('error', 'ERROR');
+}
+
+// ─── BOOT ────────────────────────────────────────────────
+startTracking();
+</script>
+</body>
+</html>
