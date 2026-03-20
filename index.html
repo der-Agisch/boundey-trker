@@ -539,6 +539,34 @@
     color: var(--accent);
     letter-spacing: 1px;
   }
+
+  .sat-toggle {
+    position: absolute;
+    top: 62px;
+    right: 14px;
+    z-index: 50;
+    width: 38px;
+    height: 38px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--sans);
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+    user-select: none;
+  }
+  .sat-toggle:hover { color: var(--accent); border-color: var(--accent); }
+  .sat-toggle.active {
+    color: var(--bg);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
 </style>
 </head>
 <body>
@@ -556,6 +584,7 @@
   <div style="position:relative;flex:1;display:flex;">
     <div id="map"></div>
     <div class="north-badge">N</div>
+    <div class="sat-toggle" id="satToggle" onclick="toggleSatellite()" title="Toggle satellite view">SAT</div>
     <div class="fetch-indicator hidden" id="fetchIndicator">
       <div class="fetch-spinner"></div>
       LOADING PARCELS
@@ -643,10 +672,45 @@ const state = {
   accuracy: null,
   watchId: null,
   isFetching: false,
+  tileLayer: null,
+  satelliteMode: false,
 };
 
 const FETCH_RADIUS_DEG = 0.008; // ~600m radius bounding box
 const REFETCH_DISTANCE = 200;   // refetch if moved >200m
+
+// ─── SATELLITE TOGGLE ────────────────────────────────────
+function toggleSatellite() {
+  if (!state.map || !state.tileLayer) return;
+  state.satelliteMode = !state.satelliteMode;
+  state.map.removeLayer(state.tileLayer);
+
+  if (state.satelliteMode) {
+    state.tileLayer = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {
+        attribution: 'Tiles © Esri — Source: Esri, Maxar, GeoEye, i-cubed, USDA FSA, USGS, AEX, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community | Parcel data: Indiana Data Harvest',
+        maxZoom: 21,
+        maxNativeZoom: 19,
+      }
+    ).addTo(state.map);
+  } else {
+    state.tileLayer = L.tileLayer(
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {
+        attribution: '© OpenStreetMap contributors | Parcel data: Indiana Data Harvest',
+        maxZoom: 21,
+        maxNativeZoom: 19,
+      }
+    ).addTo(state.map);
+  }
+
+  // Move tile layer behind parcel overlays
+  state.tileLayer.bringToBack();
+
+  const btn = document.getElementById('satToggle');
+  if (btn) btn.classList.toggle('active', state.satelliteMode);
+}
 
 // ─── INIT MAP ────────────────────────────────────────────
 function initMap(lat, lng) {
@@ -657,7 +721,7 @@ function initMap(lat, lng) {
     attributionControl: true,
   });
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  state.tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors | Parcel data: Indiana Data Harvest',
     maxZoom: 21,
     maxNativeZoom: 19,
