@@ -521,11 +521,17 @@
   .leaflet-control-attribution a { color: var(--muted) !important; }
 
   /* north indicator */
-  .north-badge {
+  .map-controls {
     position: absolute;
     top: 14px;
     right: 14px;
-    z-index: 50;
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .north-badge, .sat-toggle {
     width: 38px;
     height: 38px;
     background: var(--panel);
@@ -534,27 +540,17 @@
     align-items: center;
     justify-content: center;
     font-family: var(--sans);
-    font-size: 14px;
     font-weight: 700;
+  }
+
+  .north-badge {
+    font-size: 14px;
     color: var(--accent);
     letter-spacing: 1px;
   }
 
   .sat-toggle {
-    position: absolute;
-    top: 62px;
-    right: 14px;
-    z-index: 50;
-    width: 38px;
-    height: 38px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: var(--sans);
     font-size: 9px;
-    font-weight: 700;
     color: var(--muted);
     letter-spacing: 0.5px;
     cursor: pointer;
@@ -583,8 +579,10 @@
   <!-- MAP -->
   <div style="position:relative;flex:1;display:flex;">
     <div id="map"></div>
-    <div class="north-badge">N</div>
-    <div class="sat-toggle" id="satToggle" onclick="toggleSatellite()" title="Toggle satellite view">SAT</div>
+    <div class="map-controls">
+      <div class="north-badge">N</div>
+      <div class="sat-toggle" id="satToggle" onclick="toggleSatellite()" title="Toggle satellite view">SAT</div>
+    </div>
     <div class="fetch-indicator hidden" id="fetchIndicator">
       <div class="fetch-spinner"></div>
       LOADING PARCELS
